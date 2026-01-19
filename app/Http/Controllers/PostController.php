@@ -17,6 +17,8 @@ class PostController extends Controller
     public function index()
     {
         $posts = Post::with('author')
+            ->whereNotNull('published_at')
+            ->where('published_at', '<=', now())
             ->latest()
             ->paginate(20);
         // dd($posts);
