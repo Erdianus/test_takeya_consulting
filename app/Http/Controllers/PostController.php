@@ -7,6 +7,7 @@ use App\Http\Requests\UpdatePostRequest;
 use App\Models\Post;
 use Carbon\Carbon;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class PostController extends Controller
@@ -20,15 +21,8 @@ class PostController extends Controller
             ->paginate(20);
         // dd($posts);
 
-        return Inertia::render('posts/index', [
-            'posts' => [
-                'data' => $posts->items(),
-                'meta' => [
-                    'current_page' => $posts->currentPage(),
-                    'last_page' => $posts->lastPage(),
-                    'total' => $posts->total(),
-                ],
-            ],
+        return response()->json([
+            'posts' => $posts,
         ]);
     }
 
@@ -40,16 +34,38 @@ class PostController extends Controller
     public function store(StorePostRequest $request)
     {
         $validated = $request->validated();
-        Carbon::parse($validated['published_at'])->format('Y-m-d H:i:s');
+        $validated['published_at'] = Carbon::parse($validated['published_at'])->format('Y-m-d H:i:s');
+        DB::beginTransaction();
+        try {
+            $post = $request->user()->posts()->create($validated);
+            DB::commit();
 
-        $post = $request->user()->posts()->create($validated);
+            return response()->json([
+                'message' => 'Post created successfully',
+                'post' => $post->load('author'),
+            ], 201);
+        } catch (\Throwable $th) {
+            DB::rollBack();
 
-        return redirect()->route('posts.show', $post)->with('message', 'Post created successfully');
+            return response()->json([
+                'message' => 'Failed to create post',
+                'error' => $th->getMessage(),
+            ], 500);
+        }
+
+        // return redirect()->route('posts.show', $post)->with('message', 'Post created successfully');
     }
 
     public function show(Post $post)
     {
-        return Inertia::render('posts/show', [
+        if (
+            is_null($post->published_at) ||
+            $post->published_at->isFuture()
+        ) {
+            abort(404);
+        }
+
+        return response()->json([
             'post' => $post->load('author'),
         ]);
     }
@@ -58,7 +74,7 @@ class PostController extends Controller
     {
         $this->authorize('update', $post);
 
-        return Inertia::render('posts/edit', [
+        return response()->json([
             'post' => $post,
         ]);
     }
@@ -71,7 +87,10 @@ class PostController extends Controller
 
         $post->update($validated);
 
-        return redirect()->route('posts.show', $post)->with('message', 'Post updated successfully');
+        return response()->json([
+            'message' => 'Post updated successfully',
+            'post' => $post,
+        ]);
     }
 
     public function destroy(Post $post)
@@ -80,6 +99,8 @@ class PostController extends Controller
 
         $post->delete();
 
-        return redirect()->route('posts.index')->with('message', 'Post deleted successfully');
+        return response()->json([
+            'message' => 'Post deleted successfully',
+        ], 204);
     }
 }
